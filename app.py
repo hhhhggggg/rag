@@ -5,12 +5,8 @@ import streamlit as st
 from typing import Dict, List, Tuple
 
 # --- deps from notebook ---
-try:
-    from rank_bm25 import BM25Okapi
-except Exception:
-    BM25Okapi = None
-    import warnings
-    warnings.warn("rank_bm25 is not available; falling back to simple keyword scorer")
+from rank_bm25 import BM25Okapi
+from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 from openai import OpenAI
 
@@ -117,35 +113,7 @@ if not st.session_state.get("OPENAI_API_KEY") or not st.session_state.get("PINEC
 # ----------------------------
 @st.cache_resource(show_spinner=False)
 def load_embedder(name: str):
-    # Try to use a local SentenceTransformer model if available.
-    try:
-        from sentence_transformers import SentenceTransformer as _ST
-        return _ST(name, device="cpu")
-    except Exception:
-        # Fallback: use OpenAI embeddings via the OpenAI client wrapped as an embedder
-        class OpenAIEmbedder:
-            def __init__(self, model: str, api_key: str, base_url: str = ""):
-                self.model = model
-                self.api_key = api_key
-                self.base_url = base_url
-                self.client = OpenAI(api_key=api_key)
-
-            def encode(self, texts, convert_to_numpy=True, normalize_embeddings=True):
-                inputs = [f"query: {t}" for t in texts]
-                # Use OpenAI Embeddings API
-                resp = self.client.embeddings.create(model=self.model, input=inputs)
-                embs = [d.embedding for d in resp.data]
-                arr = np.array(embs, dtype=float)
-                if normalize_embeddings:
-                    norms = np.linalg.norm(arr, axis=1, keepdims=True)
-                    norms[norms == 0] = 1.0
-                    arr = arr / norms
-                return arr if convert_to_numpy else arr.tolist()
-
-        # Choose a small OpenAI embedding model for fallback. This requires OPENAI_API_KEY in secrets.
-        openai_emb_model = get_secret("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-        api_key = st.session_state.get("OPENAI_API_KEY") or get_secret("OPENAI_API_KEY", "")
-        return OpenAIEmbedder(openai_emb_model, api_key, base_url=get_secret("OPENAI_BASE_URL", ""))
+    return SentenceTransformer(name, device="cpu")
 
 @st.cache_resource(show_spinner=True)
 def init_pinecone(_api_key: str):
@@ -194,24 +162,10 @@ def bm25_rescore(query: str, candidates: List[Tuple[str, float, Dict]]):
         docs.append(simple_tokenize(text))
     if not docs:
         return {}
-    # If BM25 implementation is available, use it; otherwise use a simple token-overlap scorer
-    if BM25Okapi is not None:
-        bm25 = BM25Okapi(docs)
-        scores = bm25.get_scores(simple_tokenize(query)) if query else np.zeros(len(ids))
-        max_b = float(np.max(scores)) if len(scores) else 0.0
-        return {ids[i]: (float(scores[i]) / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
-    else:
-        # Simple fallback: normalized token overlap between query and doc tokens
-        q_tokens = set(simple_tokenize(query)) if query else set()
-        scores = []
-        for d in docs:
-            if not d:
-                scores.append(0.0)
-                continue
-            overlap = sum(1 for t in q_tokens if t in d)
-            scores.append(float(overlap) / max(1, len(d)))
-        max_b = float(max(scores)) if len(scores) else 0.0
-        return {ids[i]: (scores[i] / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
+    bm25 = BM25Okapi(docs)
+    scores = bm25.get_scores(simple_tokenize(query)) if query else np.zeros(len(ids))
+    max_b = float(np.max(scores)) if len(scores) else 0.0
+    return {ids[i]: (float(scores[i]) / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
 
 def build_context(query: str, candidates: List[Tuple[str, float, Dict]], vec_w: float, bm25_w: float, top_n: int, max_chars: int):
     bm25_scores = bm25_rescore(query, candidates)
@@ -324,5 +278,3 @@ if user_input:
 
             except Exception as e:
                 st.error(f"오류: {e}")
-
-# End of app.py
