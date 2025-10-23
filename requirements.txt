@@ -1,0 +1,31 @@
+# RAG System Requirements
+# Core ML Libraries
+
+## Curated requirements for deployment (Streamlit Cloud / simple servers)
+## Keep this file minimal to reduce build time. Move heavy libs to optional section below.
+
+# Web UI
+streamlit>=1.20.0
+
+# Core APIs
+openai>=2.6.0
+pinecone>=7.3.0
+
+# Retrieval / utils
+rank-bm25==0.2.2
+numpy>=1.23
+PyYAML>=6.0
+requests>=2.32.0
+
+# Optional / heavy (may increase build time on hosted platforms)
+# If you need local embedding models, uncomment these and ensure the platform can install them.
+# sentence-transformers==5.1.2
+# torch==2.9.0
+# transformers==4.57.1
+
+# Notes:
+# - For stability on hosted platforms, prefer OpenAI Embeddings (set OPENAI_API_KEY) as fallback
+#   instead of installing heavy local transformer libraries.
+
+# Web UI
+streamlit>=1.20.0
