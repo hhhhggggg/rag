@@ -5,7 +5,12 @@ import streamlit as st
 from typing import Dict, List, Tuple
 
 # --- deps from notebook ---
-from rank_bm25 import BM25Okapi
+try:
+    from rank_bm25 import BM25Okapi
+except Exception:
+    BM25Okapi = None
+    import warnings
+    warnings.warn("rank_bm25 is not available; falling back to simple keyword scorer")
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 from openai import OpenAI
@@ -162,10 +167,24 @@ def bm25_rescore(query: str, candidates: List[Tuple[str, float, Dict]]):
         docs.append(simple_tokenize(text))
     if not docs:
         return {}
-    bm25 = BM25Okapi(docs)
-    scores = bm25.get_scores(simple_tokenize(query)) if query else np.zeros(len(ids))
-    max_b = float(np.max(scores)) if len(scores) else 0.0
-    return {ids[i]: (float(scores[i]) / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
+    # If BM25 implementation is available, use it; otherwise use a simple token-overlap scorer
+    if BM25Okapi is not None:
+        bm25 = BM25Okapi(docs)
+        scores = bm25.get_scores(simple_tokenize(query)) if query else np.zeros(len(ids))
+        max_b = float(np.max(scores)) if len(scores) else 0.0
+        return {ids[i]: (float(scores[i]) / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
+    else:
+        # Simple fallback: normalized token overlap between query and doc tokens
+        q_tokens = set(simple_tokenize(query)) if query else set()
+        scores = []
+        for d in docs:
+            if not d:
+                scores.append(0.0)
+                continue
+            overlap = sum(1 for t in q_tokens if t in d)
+            scores.append(float(overlap) / max(1, len(d)))
+        max_b = float(max(scores)) if len(scores) else 0.0
+        return {ids[i]: (scores[i] / max_b if max_b > 0 else 0.0) for i in range(len(ids))}
 
 def build_context(query: str, candidates: List[Tuple[str, float, Dict]], vec_w: float, bm25_w: float, top_n: int, max_chars: int):
     bm25_scores = bm25_rescore(query, candidates)
