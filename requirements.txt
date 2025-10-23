@@ -9,7 +9,7 @@ streamlit>=1.20.0
 
 # Core APIs
 openai>=2.6.0
-pinecone-client>=2.0.0
+pinecone==7.3.0
 
 # Retrieval / utils
 rank-bm25==0.2.2
