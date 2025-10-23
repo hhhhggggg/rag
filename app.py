@@ -11,7 +11,6 @@ except Exception:
     BM25Okapi = None
     import warnings
     warnings.warn("rank_bm25 is not available; falling back to simple keyword scorer")
-from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 from openai import OpenAI
 
@@ -118,7 +117,35 @@ if not st.session_state.get("OPENAI_API_KEY") or not st.session_state.get("PINEC
 # ----------------------------
 @st.cache_resource(show_spinner=False)
 def load_embedder(name: str):
-    return SentenceTransformer(name, device="cpu")
+    # Try to use a local SentenceTransformer model if available.
+    try:
+        from sentence_transformers import SentenceTransformer as _ST
+        return _ST(name, device="cpu")
+    except Exception:
+        # Fallback: use OpenAI embeddings via the OpenAI client wrapped as an embedder
+        class OpenAIEmbedder:
+            def __init__(self, model: str, api_key: str, base_url: str = ""):
+                self.model = model
+                self.api_key = api_key
+                self.base_url = base_url
+                self.client = OpenAI(api_key=api_key)
+
+            def encode(self, texts, convert_to_numpy=True, normalize_embeddings=True):
+                inputs = [f"query: {t}" for t in texts]
+                # Use OpenAI Embeddings API
+                resp = self.client.embeddings.create(model=self.model, input=inputs)
+                embs = [d.embedding for d in resp.data]
+                arr = np.array(embs, dtype=float)
+                if normalize_embeddings:
+                    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+                    norms[norms == 0] = 1.0
+                    arr = arr / norms
+                return arr if convert_to_numpy else arr.tolist()
+
+        # Choose a small OpenAI embedding model for fallback. This requires OPENAI_API_KEY in secrets.
+        openai_emb_model = get_secret("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        api_key = st.session_state.get("OPENAI_API_KEY") or get_secret("OPENAI_API_KEY", "")
+        return OpenAIEmbedder(openai_emb_model, api_key, base_url=get_secret("OPENAI_BASE_URL", ""))
 
 @st.cache_resource(show_spinner=True)
 def init_pinecone(_api_key: str):
