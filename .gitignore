@@ -49,6 +49,9 @@ coverage.xml
 # VS Code
 .vscode/
 
+# Streamlit secrets
+.streamlit/
+
 # dotenv
 .env
 .env.*
